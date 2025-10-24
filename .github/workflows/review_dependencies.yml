@@ -25,6 +25,7 @@ jobs:
     needs: call_deps_reviewer
     permissions:
       issues: write
+      pull-requests: write
     steps:
       - name: Comment from Dependencies Reviewer
         uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
@@ -41,4 +42,4 @@ jobs:
             ---
 
             Dependencies Review Summary
-            ${{ env.REVIEW_CONCLUSION }}
+            ${{ env.REVIEW_SUMMARY }}
