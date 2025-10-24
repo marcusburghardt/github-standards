@@ -9,9 +9,6 @@ on:
       review_conclusion:
         description: "Conclusion from the dependencies review process"
         value: ${{ jobs.dependencies_review.outputs.review_step }}
-      review_summary:
-        description: "Summary from the dependencies review process"
-        value: ${{ jobs.dependencies_review.outputs.review_summary }}
 
 env:
   MIN_SCORECARD_LEVEL: '5'
@@ -29,7 +26,6 @@ jobs:
 
     outputs:
       review_step: ${{ steps.set_status.outputs.review_step }}
-      review_summary: ${{ steps.set_status.outputs.review_summary }}
 
     steps:
       - name: Checkout Repository
@@ -52,13 +48,6 @@ jobs:
         run: |
           if [[ "${{ steps.dependency_review.conclusion }}" == "failure" ]]; then
             echo "review_step=failure" >> $GITHUB_OUTPUT
-            echo "review_summary=empty" >> $GITHUB_OUTPUT
           else
             echo "review_step=success" >> $GITHUB_OUTPUT
-            comment="${{ steps.dependency_review.outputs.comment-content }}"
-            {
-              echo "review_summary<<EOF"
-              echo "$comment"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
           fi
