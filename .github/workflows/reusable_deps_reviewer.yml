@@ -8,10 +8,10 @@ on:
     outputs:
       review_conclusion:
         description: "Conclusion from the dependencies review process"
-        value: ${{ env.REVIEW_STEP }}
+        value: ${{ jobs.dependencies_review.outputs.review_step }}
       review_summary:
         description: "Summary from the dependencies review process"
-        value: ${{ env.REVIEW_SUMMARY }}
+        value: ${{ jobs.dependencies_review.outputs.review_summary }}
 
 env:
   MIN_SCORECARD_LEVEL: '5'
@@ -26,6 +26,11 @@ permissions:
 jobs:
   dependencies_review:
     runs-on: ubuntu-latest
+
+    outputs:
+      review_step: ${{ steps.set_status.outputs.review_step }}
+      review_summary: ${{ steps.set_status.outputs.review_summary }}
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -41,20 +46,15 @@ jobs:
           warn-on-openssf-scorecard-level: ${{ env.MIN_SCORECARD_LEVEL }}
         continue-on-error: true
 
-      - name: Set Default Review Status (Success/Neutral)
-        id: set_default_status
-        if: ${{ always() && steps.dependency_review.outcome != 'failure' }}
-        env:
-          REVIEW_COMMENT: ${{ steps.dependency_review.outputs.comment-content }}
-        shell: bash
+      - name: Determine Review Result
+        id: set_status
+        if: ${{ always() }}
         run: |
-          echo "REVIEW_STEP=success" >> "$GITHUB_ENV"
-          echo "REVIEW_SUMMARY='$REVIEW_COMMENT'" >> "$GITHUB_ENV"
-
-      - name: Set Failed Review Status
-        id: set_failure_status
-        if: ${{ steps.dependency_review.conclusion == 'failure' }}
-        shell: bash
-        run: |
-          echo "REVIEW_STEP=failure" >> "$GITHUB_ENV"
-          echo "REVIEW_SUMMARY=empty" >> "$GITHUB_ENV"
+          if [[ "${{ steps.dependency_review.conclusion }}" == "failure" ]]; then
+            echo "review_step=failure" >> $GITHUB_OUTPUT
+            echo "review_summary=empty" >> $GITHUB_OUTPUT
+          else
+            echo "review_step=success" >> $GITHUB_OUTPUT
+            comment="${{ steps.dependency_review.outputs.comment-content }}"
+            echo "review_summary=$comment" >> $GITHUB_OUTPUT
+          fi
