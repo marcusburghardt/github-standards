@@ -56,5 +56,9 @@ jobs:
           else
             echo "review_step=success" >> $GITHUB_OUTPUT
             comment="${{ steps.dependency_review.outputs.comment-content }}"
-            echo "review_summary=$comment" >> $GITHUB_OUTPUT
+            {
+              echo "review_summary<<EOF"
+              echo "$comment"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           fi
