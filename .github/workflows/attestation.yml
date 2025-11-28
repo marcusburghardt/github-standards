@@ -1,0 +1,47 @@
+name: build-attest
+
+on:
+  pull_request:
+      branches:
+        - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Generate GitHub App Token for Ruleset queries
+        id: generate-token
+        uses: actions/create-github-app-token@7e473efe3cb98aa54f8d4bac15400b15fad77d94 # v2.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Fetch Ruleset Data
+        id: fetch_ruleset_data
+        run: |
+          gh config set prompt disabled
+          echo "${{ steps.generate-token.outputs.token }}" | gh auth login --with-token
+          RULESET_JSON=$(gh api \
+            --method GET \
+            /repos/${{ github.repository }}/rules/branches/${{ env.BRANCH_NAME }} \
+            --jq '.' 2>/dev/null || echo '[]')
+          echo "RULESET_JSON='${RULESET_JSON}'"
+          echo ${RULESET_JSON} > combined_rules_raw.json
+          echo "RULESET_JSON='${RULESET_JSON}'" >> "$GITHUB_OUTPUT"
+
+      - name: Attest
+        uses: actions/attest@daf44fb950173508f38bd2406030372c1d1162b1 # v3.0.0
+        with:
+          subject-path: '${{ github.workspace }}/combined_rules_raw.json'
+          predicate-type: 'https://github.com/marcusburghardt/github-standards/github-combined-check/v1'
+          predicate: '{}'
