@@ -1,0 +1,16 @@
+{
+  "name": "CombinedMinimumTwoApprovals",
+  "identity_definition": {
+    "issuer": "https://github.com/${{ github.repository }}",
+    "subject": "github-branch-policy"
+  },
+  "tenets": [
+    {
+      "name": "MinimumTwoApprovalsCheck",
+      "attestation_predicate": "https://github.com/marcusburghardt/github-standards/github-combined-check/v1",
+      "evaluator": "CEL",
+      "code": "data.branch_protection_rules.required_pull_request_reviews.required_approving_review_count >= 2 || data.ruleset_rules.exists(r, r.type == 'pull_request' && r.parameters.required_approving_review_count >= 2)",
+      "description": "Policy passes if EITHER traditional branch protection OR active rulesets require a minimum of two approving reviews for PRs."
+    }
+  ]
+}

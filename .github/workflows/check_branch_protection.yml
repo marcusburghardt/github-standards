@@ -1,0 +1,168 @@
+name: Ampel Combined Branch Policy Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  validate_branch_protection:
+    runs-on: ubuntu-latest
+    env:
+      BRANCH_NAME: ${{ github.base_ref || github.ref_name }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Generate GitHub App Token for Ruleset queries
+        id: generate-token
+        uses: actions/create-github-app-token@7e473efe3cb98aa54f8d4bac15400b15fad77d94 # v2.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Fetch Ruleset Data
+        id: fetch_ruleset_data
+        run: |
+          gh config set prompt disabled
+          echo "${{ steps.generate-token.outputs.token }}" | gh auth login --with-token
+          RULESET_JSON=$(gh api \
+            --method GET \
+            /repos/${{ github.repository }}/rules/branches/${{ env.BRANCH_NAME }} \
+            --jq '.' 2>/dev/null || echo '[]')
+          echo "RULESET_JSON='${RULESET_JSON}'"
+          echo "RULESET_JSON='${RULESET_JSON}'" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch Traditional Branch Protection Data
+        id: fetch_protection_data
+        run: |
+          gh config set prompt disabled
+          echo "${{ secrets.READ_PAT }}" | gh auth login --with-token
+          # Attempt to fetch traditional protection data. If 404, we assign an empty JSON object '{}'.
+          PROTECTION_JSON=$(gh api \
+            --method GET \
+            /repos/${{ github.repository }}/branches/${{ env.BRANCH_NAME }}/protection \
+            --jq '.' 2>/dev/null || true )
+          echo "PROTECTION_JSON='${PROTECTION_JSON}'"
+          echo "PROTECTION_JSON='${PROTECTION_JSON}'" >> "$GITHUB_OUTPUT"
+
+      - name: Combine Ruleset and Protection Data
+        id: combine_data
+        run: |
+          RULESET_JSON_CONTENT=${{ steps.fetch_ruleset_data.outputs.RULESET_JSON }}
+          PROTECTION_JSON_CONTENT=${{ steps.fetch_protection_data.outputs.PROTECTION_JSON }}
+
+          jq -n \
+            --argjson ruleset_data "$RULESET_JSON_CONTENT" \
+            --argjson protection_data "$PROTECTION_JSON_CONTENT" \
+            '{ruleset_rules: $ruleset_data, branch_protection_rules: $protection_data}' \
+            > combined_rules_raw.json
+
+          COMBINED_RULES_DIGEST=$(shasum -a 256 combined_rules_raw.json | awk '{print $1}')
+          echo "COMBINED_RULES_DIGEST='sha256:${COMBINED_RULES_DIGEST}'"
+          echo "COMBINED_RULES_DIGEST='sha256:${COMBINED_RULES_DIGEST}'" >> "$GITHUB_OUTPUT"
+
+      # - name: Validate Combined JSON Schema
+      #    run: |
+      #     npm install -g ajv-cli
+      #     ajv validate \
+      #       --schema schemas/branch-policy.schema.json \
+      #       --data combined_rules_raw.json
+
+      - name: Compute Repository Digest
+        id: repo_digest
+        run: |
+          DIGEST="$(printf "${GITHUB_SHA}" | sha256sum | awk '{print $1}')"
+          echo "SUBJECT_DIGEST=sha256:${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      # --- Create DSSE attestation using reusable action ---
+      #- name: Generate Repository Attestation
+      #  id: attest
+      #  uses: ./.github/actions/create-attestation
+      #  with:
+      #    predicate-path: combined_rules_raw.json
+      #    predicate-type: https://github.com/marcusburghardt/github-standards/github-combined-check/v1
+      #    subject-digest: ${{ steps.repo_digest.outputs.SUBJECT_DIGEST }}
+
+      - name: Install Cosign
+        shell: bash
+        run: |
+          COSIGN_VERSION="$(curl -s https://api.github.com/repos/sigstore/cosign/releases/latest | jq -r '.tag_name')"
+          curl -sL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" -o cosign
+          chmod +x cosign
+          sudo mv cosign /usr/local/bin/cosign
+
+      - name: Create DSSE attestation with cosign (keyless)
+        id: cosign_attest
+        env:
+          # ensure cosign uses GitHub Actions OIDC token automatically (no extra env required)
+          # set experimental env if needed by cosign versions (no harm)
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          FILE_TO_ATTEST="combined_rules_raw.json"
+          echo "Attesting file: ${FILE_TO_ATTEST}"
+
+          cosign attest \
+            --insecure-skip-verify \  # skip TLS verification
+            --type "https://github.com/marcusburghardt/github-standards/github-combined-check/v1" \
+            --payload-path "$FILE_TO_ATTEST" \
+            --yes \
+            "$FILE_TO_ATTEST"
+
+          # cosign writes attestation output as attestation.intoto.jsonl (default). Confirm it exists:
+          if [ ! -f attestation.intoto.jsonl ]; then
+            echo "Expected attestation.intoto.jsonl not found" >&2
+            ls -la
+            exit 1
+          fi
+
+          echo "ATTESTATION_FILE=attestation.intoto.jsonl" >> "$GITHUB_OUTPUT"
+          echo "ATTESTATION_SUBJECT=${SUBJECT}" >> "$GITHUB_OUTPUT"
+          ls -lh attestation.intoto.jsonl
+          echo "First 200 chars of attestation file:"
+          head -c 200 attestation.intoto.jsonl || true
+
+      # ----------------------
+      # Install Ampel and run evaluation
+      # ----------------------
+      - name: Install Ampel CLI
+        run: |
+          # install go if necessary is preinstalled on runner; install ampel binary
+          go install github.com/carabiner-dev/ampel/cmd/ampel@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Run Ampel Compliance Check
+        id: ampel_check
+        run: |
+          set -euo pipefail
+          ATTEST="${{ steps.cosign_attest.outputs.ATTESTATION_FILE }}"
+          if [ -z "${ATTEST:-}" ]; then
+            echo "Attestation file path missing" >&2
+            exit 1
+          fi
+
+          echo "Running ampel eval with attestation: ${ATTEST}"
+          ampel eval \
+            --policy ampel_checks/branch-review-policy.json \
+            --attestation "${ATTEST}" \
+            --output json \
+            | tee ampel_results.json
+
+          # If ampel reports passed: false, fail the job
+          if jq -e '.passed == false' ampel_results.json >/dev/null; then
+            echo "AMPEL policy FAILED. See ampel_results.json for details."
+            cat ampel_results.json
+            exit 1
+          else
+            echo "AMPEL policy PASSED."
+            cat ampel_results.json
+          fi
