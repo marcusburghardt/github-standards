@@ -4,6 +4,8 @@ name: Secure by Compliance
 on:
   workflow_dispatch:
 
+# {} also works, but making it explicit which permissions are needed is betters.
+# Now I can more easily track where and how they are used in the workflow.
 permissions:
   id-token: none
   attestations: none
@@ -24,29 +26,39 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup bnd
-        uses: carabiner-dev/actions/install/bnd@100bcc8d38102ef3ca2a997c04033308198666cd
-
-      - name: Setup snappy
+      - name: Setup snappy for API calls
         uses: carabiner-dev/actions/install/snappy@100bcc8d38102ef3ca2a997c04033308198666cd
+
+      - name: Setup bnd to create attestations bundles
+        uses: carabiner-dev/actions/install/bnd@100bcc8d38102ef3ca2a997c04033308198666cd
 
       - name: Generate branch rules attestation
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         run: |
           mkdir -p attestations
+
+          # Use snappy to make the API call to the branch rules endpoint
+          # and save the result to a file with the option to hide sensitive data.
           snappy snap builtin:github/branch-rules.yaml \
           -v BRANCH=${{ github.ref_name }} \
           -v REPO=${{ github.event.repository.name }} \
           -v ORG=${{github.repository_owner}} \
           --attest > attestations/branch-rules.intoto.json
+
+          # Create a bundle from the intoto.json file
           bnd statement attestations/branch-rules.intoto.json --out attestations/branch-rules.bundle.json
+
+          # Push the bundle to the GitHub repository
           bnd push github ${{github.repository}} attestations/branch-rules.bundle.json
+
+          # Clean up the files that are no longer needed
           rm -f attestations/branch-rules.intoto.json attestations/branch-rules.bundle.json
-        id: attest-branch-rules
+
       - name: Pack Attestations
-        id: pack-attestations
         run: |
+          # Pack the attestations into a single file.
+          # It is using a directory as input but it could also be multiple explicit files.
           bnd pack attestations/ > attestations.jsonl
 
       - name: Archive production artifacts
@@ -57,10 +69,9 @@ jobs:
 
       - uses: carabiner-dev/actions/ampel/verify@100bcc8d38102ef3ca2a997c04033308198666cd
         name: Evaluate Compliance
-        id: osps-baseline-check
         with:
           subject: sha1:${{ github.sha }}
           collector: "jsonl:attestations.jsonl"
-          policy: "git+https://github.com/marcusburghardt/github-standards#ampel_policies/branch-branch-protection.json"
+          policy: "git+https://github.com/marcusburghardt/github-standards#ampel_policies/branch-protection-rules.json"
           attest: true
           fail: false
