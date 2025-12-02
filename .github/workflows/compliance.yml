@@ -39,10 +39,10 @@ jobs:
           -v BRANCH=${{ github.ref_name }} \
           -v REPO=${{ github.event.repository.name }} \
           -v ORG=${{github.repository_owner}} \
-          --attest > attestations/branch.intoto.json
+          --attest > attestations/branch-rules.intoto.json
           bnd statement attestations/branch-rules.intoto.json --out attestations/branch-rules.bundle.json
           bnd push github ${{github.repository}} attestations/branch-rules.bundle.json
-          rm -f attestations/branch-rules.intoto.json
+          rm -f attestations/branch-rules.intoto.json attestations/branch-rules.bundle.json
         id: attest-branch-rules
       - name: Pack Attestations
         id: pack-attestations
