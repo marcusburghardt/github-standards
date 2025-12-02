@@ -42,7 +42,7 @@ jobs:
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         run: |
-          snappy snap builtin:github/branch-rules.yaml -v BRANCH=main -v REPO=${{ github.event.repository.name }} -v ORG=${{github.repository_owner}} --attest > branch.intoto.json
+          snappy snap builtin:github/branch-rules.yaml -v BRANCH=main -v REPO=${{ github.event.repository.name }} -v ORG=${{github.repository_owner}} --attest > attestations/branch.intoto.json
           bnd statement attestations/branch.intoto.json --out attestations/branch.bundle.json
           bnd push github ${{github.repository}} attestations/branch.bundle.json
           rm -f attestations/branch.intoto.json
