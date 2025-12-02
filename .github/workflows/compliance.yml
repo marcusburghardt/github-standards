@@ -1,10 +1,13 @@
 ---
-name: OSPS Compliance
+name: Secure by Compliance
 
 on:
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  id-token: none
+  attestations: none
+  contents: none
 
 jobs:
   attest:
@@ -16,37 +19,31 @@ jobs:
       contents: read
 
     steps:
+      - name: Check out code
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+
       - name: Setup bnd
         uses: carabiner-dev/actions/install/bnd@100bcc8d38102ef3ca2a997c04033308198666cd
 
       - name: Setup snappy
         uses: carabiner-dev/actions/install/snappy@100bcc8d38102ef3ca2a997c04033308198666cd
 
-      - name: Check out code
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          persist-credentials: false
-
-      - name: Generate MFA attestation
-        env:
-          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        run: |
-          mkdir attestations
-          snappy snap builtin:github/mfa.yaml -v ORG=${{github.repository_owner}} --attest > attestations/mfa.intoto.json
-          bnd statement attestations/mfa.intoto.json --out attestations/mfa.bundle.json
-          bnd push github ${{github.repository}} attestations/mfa.bundle.json
-          rm -f attestations/mfa.intoto.json
-        id: attest-mfa
-
       - name: Generate branch rules attestation
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         run: |
-          snappy snap builtin:github/branch-rules.yaml -v BRANCH=main -v REPO=${{ github.event.repository.name }} -v ORG=${{github.repository_owner}} --attest > attestations/branch.intoto.json
-          bnd statement attestations/branch.intoto.json --out attestations/branch.bundle.json
-          bnd push github ${{github.repository}} attestations/branch.bundle.json
-          rm -f attestations/branch.intoto.json
-        id: attest-branch
+          mkdir -p attestations
+          snappy snap builtin:github/branch-rules.yaml \
+          -v BRANCH=${{ github.ref_name }} \
+          -v REPO=${{ github.event.repository.name }} \
+          -v ORG=${{github.repository_owner}} \
+          --attest > attestations/branch.intoto.json
+          bnd statement attestations/branch-rules.intoto.json --out attestations/branch-rules.bundle.json
+          bnd push github ${{github.repository}} attestations/branch-rules.bundle.json
+          rm -f attestations/branch-rules.intoto.json
+        id: attest-branch-rules
       - name: Pack Attestations
         id: pack-attestations
         run: |
@@ -64,6 +61,6 @@ jobs:
         with:
           subject: sha1:${{ github.sha }}
           collector: "jsonl:attestations.jsonl"
-          policy: "git+https://github.com/carabiner-dev/policies#sets/baseline/osps-baseline.policy.json"
+          policy: "git+https://github.com/marcusburghardt/github-standards#ampel_policies/branch-branch-protection.json"
           attest: true
           fail: false
