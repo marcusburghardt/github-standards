@@ -47,17 +47,6 @@ jobs:
           bnd push github ${{github.repository}} attestations/branch.bundle.json
           rm -f attestations/branch.intoto.json
         id: attest-branch
-
-      - name: "Generate Scorecard Attestation"
-        env:
-          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        run: |
-          scorecard --repo=${{ github.event.repository.full_name }} --format=intoto > attestations/scorecard.intoto.json
-          bnd statement attestations/scorecard.intoto.json --out attestations/scorecard.bundle.json
-          bnd push github ${{github.repository}} attestations/scorecard.bundle.json
-          rm -f attestations/scorecard.intoto.json
-        id: attest-scorecard
-
       - name: Pack Attestations
         id: pack-attestations
         run: |
