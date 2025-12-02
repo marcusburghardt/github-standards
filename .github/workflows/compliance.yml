@@ -53,7 +53,7 @@ jobs:
           bnd push github ${{github.repository}} attestations/branch-rules.bundle.json
 
           # Clean up the files that are no longer needed
-          rm -f attestations/branch-rules.intoto.json attestations/branch-rules.bundle.json
+          rm -f attestations/branch-rules.intoto.json
 
       - name: Pack Attestations
         run: |
