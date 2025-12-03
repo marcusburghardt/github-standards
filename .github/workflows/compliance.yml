@@ -12,7 +12,7 @@ permissions:
   contents: none
 
 jobs:
-  attest:
+  secure-by-compliance:
     runs-on: ubuntu-latest
 
     permissions:
@@ -33,6 +33,7 @@ jobs:
         uses: carabiner-dev/actions/install/bnd@100bcc8d38102ef3ca2a997c04033308198666cd
 
       - name: Generate branch rules attestation
+        id: attestation
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         run: |
@@ -52,6 +53,10 @@ jobs:
           # Push the bundle to the GitHub repository
           bnd push github ${{github.repository}} attestations/branch-rules.bundle.json
 
+          # Extract SHA256 digest
+          SHA256=$(jq -r '.subject[0].digest.sha256' attestations/branch-rules.intoto.json)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
           # Clean up the files that are no longer needed
           rm -f attestations/branch-rules.intoto.json
 
@@ -70,7 +75,7 @@ jobs:
       - uses: carabiner-dev/actions/ampel/verify@100bcc8d38102ef3ca2a997c04033308198666cd
         name: Evaluate Compliance
         with:
-          subject: sha1:${{ github.sha }}
+          subject: sha256:${{ steps.attestation.outputs.sha256 }}
           collector: "jsonl:attestations.jsonl"
           policy: "git+https://github.com/marcusburghardt/github-standards#ampel_policies/branch-protection-rules.json"
           attest: true
