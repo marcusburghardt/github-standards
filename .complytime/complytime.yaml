@@ -1,0 +1,15 @@
+policies:
+  - url: quay.io/complytime/policies-ampel-branch-protection@latest
+    id: ampel-bp
+
+complypacks:
+  - url: ghcr.io/complytime/complypack-ampel-branch-protection@latest
+    id: ampel-bp-pack
+
+targets:
+  - id: github-standards
+    policies:
+      - ampel-bp
+    variables:
+      url: https://github.com/marcusburghardt/github-standards
+      specs: builtin:github/branch-rules.yaml
